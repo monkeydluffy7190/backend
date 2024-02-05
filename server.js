@@ -225,6 +225,10 @@ app.get("/api/formdata", isAuth, async (req, res) => {
   }
 });
 
+app.use('*',(req,res)=>{
+    res.send('You are looking at backend apis')
+})
+
 // Cron job to update entries with null values to -1 every 10 seconds
 //for 12 hours use this 0 */12 * * *
 // Function to run the cron job
