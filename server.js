@@ -46,9 +46,11 @@ const User = mongoose.model("User", userSchema);
 
 const formDataSchema = new mongoose.Schema({
   accountName: { type: String, required: true },
-  sentInvitation: { type: Number, required: false },
-  connections: { type: Number, required: false },
-  noOfBotFileNames: { type: Number, required: false },
+  sentInvitation: [{ type: Number, required: false }],
+  connections:[{ type: Number, required: false }],
+  noOfBotFileNames: [{ type: Number, required: false }],
+  Dates: [{type: Date, require: true}],
+  owner:{type: mongoose.Schema.Types.ObjectId, ref:'User'}
 });
 
 const FormData = mongoose.model("FormData", formDataSchema);
@@ -105,9 +107,9 @@ app.post("/api/signup", async (req, res) => {
 // Login API
 app.post("/api/login", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password} = req.body;
     const user = await User.findOne({ username });
-
+    const id= user._id;
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -119,26 +121,35 @@ app.post("/api/login", async (req, res) => {
     }
 
     // Check if the user is logging in after 12 hours
-    // const lastLoginTime = moment(user.lastLogin);
-    // const currentTime = moment();
-    // const duration = moment.duration(currentTime.diff(lastLoginTime));
-    // const hoursSinceLastLogin = duration.asHours();
+     const lastLoginTime = moment(user.lastLogin);
+     const currentTime = moment();
+     const duration = moment.duration(currentTime.diff(lastLoginTime));
+     const hoursSinceLastLogin = duration.asHours();
 
-    // if (hoursSinceLastLogin >= 12) {
-    //   // Run the cron job function
-    //   await runCronJob();
-    // }
+     if (hoursSinceLastLogin >= 12) {
+       // Run the cron job function
+       const total_absent=hoursSinceLastLogin/12;
+      for(let i=0;i<total_absent;i++)
+      {
+        await runCronJob(id);
+      }
+     }
 
     // Check if the user is logging in after 10 seconds (changed from 12 hours)
-    const lastLoginTime = moment(user.lastLogin);
-    const currentTime = moment();
-    const duration = moment.duration(currentTime.diff(lastLoginTime));
-    const secondsSinceLastLogin = duration.asSeconds();
+   // const lastLoginTime = moment(user.lastLogin);
+   // const currentTime = moment();
+   // const duration = moment.duration(currentTime.diff(lastLoginTime));
+   // const secondsSinceLastLogin = duration.asSeconds();
 
-    if (secondsSinceLastLogin >= 10) {
+   // if (secondsSinceLastLogin >= 10) {
       // Run the cron job function
-      await runCronJob();
-    }
+    //  const total_absent=secondsSinceLastLogin/10;
+    //  for(let i=0;i<total_absent;i++)
+    //  {
+    //    await runCronJob(id);
+    //  }
+      
+    //}
 
     // Update lastLogin timestamp
     user.lastLogin = new Date();
@@ -156,7 +167,7 @@ app.post("/api/login", async (req, res) => {
     // Include the token in the response
     res
       .status(200)
-      .json({ message: "Login successful", username: user.username, token });
+      .json({ id: user._id , message: "Login successful", username: user.username, token });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -165,59 +176,44 @@ app.post("/api/login", async (req, res) => {
 
 app.post("/api/formdata", isAuth, async (req, res) => {
   try {
-    const { accountName, sentInvitation, connections, noOfBotFileNames } =
+    const { accountName, sentInvitation, connections, noOfBotFileNames , id } =
       req.body;
-
-    const newFormData = new FormData({
-      accountName,
-      sentInvitation,
-      connections,
-      noOfBotFileNames,
-    });
-
-    await newFormData.save();
+    const data = await FormData.findOne({accountName:accountName, owner:id})
+    if(data)
+    {
+      await FormData.findOneAndUpdate({accountName:accountName, owner:id}, {
+          accountName,
+          $push :{"sentInvitation": sentInvitation, "connections": connections, "noOfBotFileNames": noOfBotFileNames, "Dates":new Date()},
+          owner: id
+      })
+      
+    }
+    else
+    {
+      await FormData.create({
+        accountName,
+        sentInvitation:[sentInvitation],
+        connections:[connections],
+        noOfBotFileNames:[noOfBotFileNames],
+        Dates: [new Date()],
+        owner:id
+      })
+      
+  }
     res.status(201).json({ message: "Form data saved successfully" });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
-// API to edit form data by ID
-app.put("/api/formdata/:id", isAuth, async (req, res) => {
+
+
+
+
+
+app.get("/api/formdata/:id", isAuth, async (req, res) => {
   try {
-    const { accountName, sentInvitation, connections, noOfBotFileNames } =
-      req.body;
-    const formDataId = req.params.id;
-
-    await FormData.findByIdAndUpdate(formDataId, {
-      accountName,
-      sentInvitation,
-      connections,
-      noOfBotFileNames,
-    });
-
-    res.status(200).json({ message: "Form data updated successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-
-// API to delete form data by ID
-app.delete("/api/formdata/:id", isAuth, async (req, res) => {
-  try {
-    const formDataId = req.params.id;
-    await FormData.findByIdAndDelete(formDataId);
-    res.status(200).json({ message: "Form data deleted successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-
-app.get("/api/formdata", isAuth, async (req, res) => {
-  try {
-    const allFormData = await FormData.find();
+    const allFormData = await FormData.find({owner:req.params.id});
     res.status(200).json(allFormData);
   } catch (error) {
     console.error(error);
@@ -232,20 +228,14 @@ app.use('*',(req,res)=>{
 // Cron job to update entries with null values to -1 every 10 seconds
 //for 12 hours use this 0 */12 * * *
 // Function to run the cron job
-const runCronJob = async () => {
+const runCronJob = async (id) => {
   try {
     // Find entries with null values
-    const nullEntries = await FormData.find();
-
-    // Update null values to -1
-    await Promise.all(
-      nullEntries.map(async (entry) => {
-        entry.sentInvitation = -1;
-        entry.connections = -1;
-        entry.noOfBotFileNames = -1;
-        await entry.save();
-      })
-    );
+    console.log(id)
+    await FormData.updateMany({owner:id}, {
+      $push :{"sentInvitation": -1, "connections": -1, "noOfBotFileNames": -1,"Dates":new Date()},
+      owner: id
+  })
 
     console.log("Cron job executed successfully");
   } catch (error) {
